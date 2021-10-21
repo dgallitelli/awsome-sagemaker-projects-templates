@@ -6,6 +6,12 @@ import os
 import boto3
 from botocore.exceptions import ClientError
 
+from pipelines import run_pipeline
+
+from sagemaker.model import Model
+from sagemaker.utils import name_from_base
+from sagemaker import get_execution_role
+
 logger = logging.getLogger(__name__)
 sm_client = boto3.client("sagemaker")
 
@@ -51,6 +57,7 @@ def get_approved_package(model_package_group_name):
 
         # Return the pmodel package arn
         model_package_arn = approved_packages[0]["ModelPackageArn"]
+        print(approved_packages[0])
         logger.info(f"Identified the latest approved model package: {model_package_arn}")
         return model_package_arn
     except ClientError as e:
@@ -58,8 +65,7 @@ def get_approved_package(model_package_group_name):
         logger.error(error_message)
         raise Exception(error_message)
 
-
-def extend_config(args, model_package_arn, stage_config):
+def extend_config(args, model_package_arn, pipeline_arn, stage_config):
     """
     Extend the stage configuration with additional parameters and tags based.
     """
@@ -74,6 +80,7 @@ def extend_config(args, model_package_arn, stage_config):
         "SageMakerProjectId": args.sagemaker_project_id,
         "ModelPackageName": model_package_arn,
         "ModelExecutionRoleArn": args.model_execution_role,
+        "PipelineDefinitionBody": pipeline_definition
     }
     new_tags = {
         "sagemaker:deployment-stage": stage_config["Parameters"]["StageName"],
@@ -127,6 +134,7 @@ def create_cfn_params_tags_file(config, export_params_file, export_tags_file):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--log-level", type=str, default=os.environ.get("LOGLEVEL", "INFO").upper())
+    parser.add_argument("--aws-region", type=str, required=True)
     parser.add_argument("--model-execution-role", type=str, required=True)
     parser.add_argument("--model-package-group-name", type=str, required=True)
     parser.add_argument("--sagemaker-project-id", type=str, required=True)
@@ -150,9 +158,24 @@ if __name__ == "__main__":
     # Get the latest approved package
     model_package_arn = get_approved_package(args.model_package_group_name)
 
+    # Build the pipeline
+    pipeline_definition = run_pipeline.main(
+        'pipelines.batch_inference.pipeline',
+        args.model_execution_role,
+        json.dumps([
+            {"Key":"sagemaker:project-name","Value":args.sagemaker_project_name},
+            {"Key":"sagemaker:project-id","Value":args.sagemaker_project_id}
+        ]),
+        json.dumps({
+            'region':args.aws_region,
+            'pipeline_name':f'{args.sagemaker_project_name}-{args.sagemaker_project_id}-BatchInference',
+            'base_job_prefix':f'{args.sagemaker_project_name}-{args.sagemaker_project_id}'
+        })
+    )
+
     # Write the staging config
     with open(args.import_staging_config, "r") as f:
-        staging_config = extend_config(args, model_package_arn, json.load(f))
+        staging_config = extend_config(args, model_package_arn, pipeline_definition, json.load(f))
     logger.debug("Staging config: {}".format(json.dumps(staging_config, indent=4)))
     with open(args.export_staging_config, "w") as f:
         json.dump(staging_config, f, indent=4)
@@ -161,7 +184,7 @@ if __name__ == "__main__":
 
     # Write the prod config for code pipeline
     with open(args.import_prod_config, "r") as f:
-        prod_config = extend_config(args, model_package_arn, json.load(f))
+        prod_config = extend_config(args, model_package_arn, pipeline_definition, json.load(f))
     logger.debug("Prod config: {}".format(json.dumps(prod_config, indent=4)))
     with open(args.export_prod_config, "w") as f:
         json.dump(prod_config, f, indent=4)

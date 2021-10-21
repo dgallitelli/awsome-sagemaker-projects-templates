@@ -44,13 +44,11 @@ if __name__ == "__main__":
     # Load the build config
     with open(args.import_build_config, "r") as f:
         config = json.load(f)
-        print(config['Parameters'])
 
     # Create helper variables
-    pipeline_name = f"{config['Parameters']['SageMakerProjectName']}-{config['Parameters']['StageName']}-batch-pipeline"
+    pipeline_name = f"{config['Parameters']['SageMakerProjectName']}-{config['Parameters']['SageMakerProjectId']}-BatchInference"
     input_path = config['Parameters']['InputPath']
     output_path = config['Parameters']['OutputPath']
-    model_package_name = config['Parameters']['ModelPackageName']
     batch_instance_type = config['Parameters']['BatchInstanceType']
     batch_instance_count = config['Parameters']['BatchInstanceCount']
 
@@ -58,7 +56,6 @@ if __name__ == "__main__":
     pipeline_parameters = [
         {'Name': 'InputPath', 'Value': input_path},
         {'Name': 'OutputPath', 'Value': output_path},
-        {'Name': 'ModelName', 'Value': model_package_name},
         {'Name': 'BatchInstanceType', 'Value': batch_instance_type},
         {'Name': 'BatchInstanceCount', 'Value': batch_instance_count},
     ]
@@ -67,7 +64,11 @@ if __name__ == "__main__":
         pipeline_parameters=pipeline_parameters
     )
     outcome = wait_for_pipeline_completion(pipeline_arn)
+    print(outcome)
 
     # Print results and write to file
     with open(args.export_test_results, "w") as f:
-        json.dump(outcome, f, indent=4)
+        json.dump(outcome, f, indent=4, default=str)
+
+    if outcome['PipelineExecutionStatus'] == 'Failed':
+        raise Exception(f'Pipeline failed. Reason: {outcome["FailureReason"]}')

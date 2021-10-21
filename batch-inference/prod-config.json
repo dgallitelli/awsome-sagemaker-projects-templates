@@ -1,7 +1,9 @@
 {
   "Parameters": {
     "StageName": "prod",
-    "InputPath": "s3://sagemaker-eu-west-1-859755744029/scheduled-inference-demo/data/test_X.csv",
-    "OutputPath": "s3://sagemaker-eu-west-1-859755744029/scheduled-inference-demo/output/"
+    "BatchInstanceType": "ml.m5.xlarge",
+    "BatchInstanceCount": 1,
+    "InputPath": "",
+    "OutputPath": ""
   }
 }
