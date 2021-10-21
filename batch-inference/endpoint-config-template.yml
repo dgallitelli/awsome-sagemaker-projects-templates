@@ -1,0 +1,88 @@
+Description:
+  This template is built and deployed by the infrastructure pipeline in various stages (staging/production) as required.
+  It specifies the resources that need to be created, like the SageMaker Endpoint. It can be extended to include resources like
+  AutoScalingPolicy, API Gateway, etc,. as required.
+Parameters:
+  SageMakerProjectName:
+    Type: String
+    Description: Name of the project
+    MinLength: 1
+    MaxLength: 32
+    AllowedPattern: ^[a-zA-Z](-*[a-zA-Z0-9])*
+  SageMakerProjectId:
+    Type: String
+    Description: Id of the project
+    MinLength: 1
+    MaxLength: 32
+  ModelExecutionRoleArn:
+    Type: String
+    Description: Execution role used for deploying the model.
+  ModelPackageName:
+    Type: String
+    Description: Name of the model to use
+  InputPath:
+    Type: String
+    Description: The S3 path where data is stored on which to run inference.
+  OutputPath:
+    Type: String
+    Description: The S3 path where predictions will be output.
+  BatchInstanceType:
+    Type: String
+    Description: Which kind of instance you want to use for Batch inference
+    Default: ml.m5.xlarge
+  BatchInstanceCount:
+    Type: Number
+    Description: How many instances you want to use for inference.
+    Default: 1
+  ScheduleExpressionforPipeline:
+    Type: String
+    Description: The rate of execution of your pipeline (default 30 minutes)
+    Default: 30 minutes
+  StageName:
+    Type: String
+    Description:
+      The name for a project pipeline stage, such as dev or prod, for
+      which resources are provisioned and deployed.
+
+Resources:
+  ModelToDeploy:
+    Type: AWS::SageMaker::Model
+    Properties:
+      ExecutionRoleArn: !Ref ModelExecutionRoleArn
+      Containers: 
+        - ModelPackageName: !Ref ModelPackageName
+      ModelName: !Sub ${SageMakerProjectName}-model
+  BatchPipeline:
+    Type: AWS::SageMaker::Pipeline
+    Properties: 
+      PipelineDescription: The SM Pipeline that executes the batch inference
+      PipelineName: !Sub ${SageMakerProjectName}-${StageName}-batch-pipeline
+      RoleArn: !Ref ModelExecutionRoleArn
+      PipelineDefinition: 
+        PipelineDefinitionBody: '{"Version": "2020-12-01", "Metadata": {}, "Parameters": [{"Name": "ModelName", "Type": "String"}, {"Name": "InputPath", "Type": "String"}, {"Name": "OutputPath", "Type": "String"}, {"Name": "BatchInstanceType", "Type": "String"}, {"Name": "BatchInstanceCount", "Type": "Integer"}], "PipelineExperimentConfig": {"ExperimentName": {"Get": "Execution.PipelineName"}, "TrialName": {"Get": "Execution.PipelineExecutionId"}}, "Steps": [{"Name": "BatchInference", "Type": "Transform", "Arguments": {"ModelName": {"Get": "Parameters.ModelName"}, "TransformInput": {"DataSource": {"S3DataSource": {"S3DataType": "S3Prefix", "S3Uri": {"Get": "Parameters.InputPath"}}}, "ContentType": "text/csv"}, "TransformOutput": {"S3OutputPath": {"Get": "Parameters.OutputPath"}}, "TransformResources": {"InstanceCount": {"Get": "Parameters.BatchInstanceCount"}, "InstanceType": {"Get": "Parameters.BatchInstanceType"}}}}]}'
+      Tags:
+        - Key: sagemaker:project-name
+          Value: !Sub ${SageMakerProjectName}
+        - Key: sagemaker:project-id
+          Value: !Sub ${SageMakerProjectId}
+  EventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Name: !Sub ${SageMakerProjectName}-${StageName}-SchedExecRule
+      ScheduleExpression: !Sub rate(${ScheduleExpressionforPipeline})
+      Targets:
+        - Arn: !Sub arn:aws:sagemaker:${AWS::Region}:${AWS::AccountId}:pipeline/${SageMakerProjectName}-${StageName}-batch-pipeline
+          Id: MyBatchInferenceTarget
+          RoleArn: !Ref ModelExecutionRoleArn
+          SageMakerPipelineParameters:
+            PipelineParameterList:
+              - Name: ModelName
+                Value: !Ref ModelToDeploy::ModelName
+              - Name: InputPath
+                Value: !Ref InputPath
+              - Name: OutputPath
+                Value: !Ref OutputPath
+              - Name: BatchInstanceType
+                Value: !Ref BatchInstanceType
+              - Name: BatchInstanceCount
+                Value: !Ref BatchInstanceCount

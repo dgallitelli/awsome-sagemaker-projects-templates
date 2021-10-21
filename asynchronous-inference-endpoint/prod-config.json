@@ -1,0 +1,8 @@
+{
+  "Parameters": {
+    "StageName": "prod",
+    "EndpointInstanceCount": "1",
+    "EndpointInstanceType": "ml.m5.large",
+    "S3OutputPath": "s3://sagemaker-eu-west-1-859755744029/async-demo/output/"
+  }
+}

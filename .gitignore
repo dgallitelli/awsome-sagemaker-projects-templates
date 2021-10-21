@@ -1,0 +1,7 @@
+*.egg-info
+venv
+.venv
+.env
+.vscode
+.ipynb_checkpoints
+.DS_Store
